@@ -1,26 +1,3 @@
----
-title: Variational Auto encoder
-description: VAE with distribution analysis for each category
-authors:
-  - name: Nicholas Harbour, Nipuni de Silva
-format:
-  html:
-    embed-resources: true
-    code-fold: true
-    number-sections: true
-    toc: true
-    toc-depth: 3
-    date: now
-    date-modified: last-modified
-    date-format: "MMMM DD, YYYY, HH:mm:ss"
-jupyter: python3
----
-
-```{python}
-
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -51,6 +28,7 @@ test_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=False, downlo
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
+
 # Define the Variational Autoencoder
 class VAE(nn.Module):
     def __init__(self, latent_dim=32):
@@ -60,7 +38,7 @@ class VAE(nn.Module):
         # Encoder
         self.encoder = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(28*28, 512),
+            nn.Linear(28 * 28, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -76,7 +54,7 @@ class VAE(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 512),
             nn.ReLU(),
-            nn.Linear(512, 28*28),
+            nn.Linear(512, 28 * 28),
             nn.Sigmoid(),
             nn.Unflatten(1, (1, 28, 28))
         )
@@ -101,6 +79,7 @@ class VAE(nn.Module):
         recon_x = self.decode(z)
         return recon_x, mu, logvar
 
+
 # VAE Loss function
 def vae_loss(recon_x, x, mu, logvar, beta=1.0):
     # Reconstruction loss (Binary Cross Entropy)
@@ -110,6 +89,7 @@ def vae_loss(recon_x, x, mu, logvar, beta=1.0):
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     return recon_loss + beta * kl_loss, recon_loss, kl_loss
+
 
 # Instantiate model and optimizer
 model = VAE(latent_dim).to(device)
@@ -145,10 +125,11 @@ for epoch in range(num_epochs):
 
     train_losses.append(avg_loss)
 
-    print(f'Epoch [{epoch+1}/{num_epochs}], '
+    print(f'Epoch [{epoch + 1}/{num_epochs}], '
           f'Total Loss: {avg_loss:.4f}, '
           f'Recon Loss: {avg_recon_loss:.4f}, '
           f'KL Loss: {avg_kl_loss:.4f}')
+
 
 # Function to extract latent representations and analyze by category
 def analyze_latent_distributions(model, data_loader):
@@ -184,14 +165,15 @@ def analyze_latent_distributions(model, data_loader):
 
     return category_stats
 
+
 # Analyze distributions for each category
 print("\nAnalyzing latent space distributions by category...")
 category_distributions = analyze_latent_distributions(model, test_loader)
 
 # Display results
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("LATENT SPACE DISTRIBUTION ANALYSIS BY CATEGORY")
-print("="*80)
+print("=" * 80)
 
 for category in range(10):
     stats = category_distributions[category]
@@ -201,6 +183,7 @@ for category in range(10):
     print(f"  Mean σ: {stats['mean_sigma'][:5]}...")
     print(f"  Std σ:  {stats['std_sigma'][:5]}...")
     print(f"  Mean log(σ²): {stats['mean_logvar'][:5]}...")
+
 
 # Visualize latent space distributions
 def plot_latent_distributions(category_stats, max_dims=8):
@@ -225,6 +208,7 @@ def plot_latent_distributions(category_stats, max_dims=8):
     plt.tight_layout()
     plt.show()
 
+
 # Visualize reconstructions
 def show_reconstructions(model, data_loader, num_images=10):
     model.eval()
@@ -237,7 +221,7 @@ def show_reconstructions(model, data_loader, num_images=10):
     images = images.cpu().numpy()
     recon_images = recon_images.cpu().numpy()
 
-    fig, axes = plt.subplots(3, num_images, figsize=(num_images*1.5, 4.5))
+    fig, axes = plt.subplots(3, num_images, figsize=(num_images * 1.5, 4.5))
 
     for i in range(num_images):
         # Original
@@ -270,6 +254,7 @@ def show_reconstructions(model, data_loader, num_images=10):
     plt.tight_layout()
     plt.show()
 
+
 # Generate sample images from latent space
 def generate_samples(model, num_samples=10):
     model.eval()
@@ -280,15 +265,16 @@ def generate_samples(model, num_samples=10):
 
     samples = samples.cpu().numpy()
 
-    fig, axes = plt.subplots(1, num_samples, figsize=(num_samples*1.5, 1.5))
+    fig, axes = plt.subplots(1, num_samples, figsize=(num_samples * 1.5, 1.5))
     for i in range(num_samples):
         axes[i].imshow(samples[i].squeeze(), cmap='gray')
         axes[i].axis('off')
-        axes[i].set_title(f'Sample {i+1}', fontsize=8)
+        axes[i].set_title(f'Sample {i + 1}', fontsize=8)
 
     plt.suptitle('Generated Samples from Latent Space')
     plt.tight_layout()
     plt.show()
+
 
 # Show results
 print("\nGenerating visualizations...")
@@ -322,8 +308,46 @@ for category in range(10):
     })
 
 df_summary = pd.DataFrame(summary_data)
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("SUMMARY TABLE: Distribution Statistics by Category")
-print("="*80)
+print("=" * 80)
 print(df_summary.round(4))
-```
+
+
+def generate_from_distribution(model, category_distributions, category,
+                               num_samples=5, device='cpu'):
+    """
+    Generate images using learned mu and sigma distributions for a specific category
+
+    Args:
+        model: Trained VAE model
+        category_distributions: Dictionary with distribution stats from analyze_latent_distributions()
+        category: Category index (0-9 for FashionMNIST)
+        num_samples: Number of images to generate
+        device: Device to run on
+
+    Returns:
+        Generated images tensor of shape (num_samples, 1, 28, 28)
+    """
+
+    if category not in category_distributions:
+        raise ValueError(f"Category {category} not found in distributions")
+
+    stats = category_distributions[category]
+    mean_mu = torch.tensor(stats['mean_mu'], dtype=torch.float32, device=device)
+    mean_sigma = torch.tensor(stats['mean_sigma'], dtype=torch.float32, device=device)
+
+    model.eval()
+    with torch.no_grad():
+        # Sample from the learned distribution
+        eps = torch.randn(num_samples, len(mean_mu), device=device)
+        z = mean_mu.unsqueeze(0) + eps * mean_sigma.unsqueeze(0)
+
+        # Generate images from latent codes
+        generated_images = model.decode(z)
+
+    return generated_images
+
+sampled_boots= generate_from_distribution(model, category_distributions,
+                                               category=9, num_samples=3,
+                                              device=device)

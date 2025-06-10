@@ -1,0 +1,426 @@
+---
+title: VAE GAN framework
+description: VAE with distribution analysis for each category
+authors:
+  - name: Nicholas Harbour, Nipuni de Silva
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    number-sections: true
+    toc: true
+    toc-depth: 3
+    date: now
+    date-modified: last-modified
+    date-format: "MMMM DD, YYYY, HH:mm:ss"
+jupyter: python3
+---
+
+
+# Load libraries
+
+```{python}
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+from torch.utils.data import Subset
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Enable anomaly detection for debugging
+torch.autograd.set_detect_anomaly(True)
+
+# Device configuration
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+```
+
+# Hyperparameters and dataset
+
+```{python}
+
+# Hyperparameters
+batch_size = 128
+learning_rate = 2e-4
+num_epochs = 10
+latent_dim = 100
+
+# FashionMNIST class names
+class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+               'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+
+# Data loading and preprocessing
+transform = transforms.ToTensor()
+train_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=True, download=True, transform=transform)
+test_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=False, download=True, transform=transform)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+
+```
+
+
+# Define the VAE-GAN architecture
+
+```{python}
+
+# Encoder
+class Encoder(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28*28, 512),
+            nn.ReLU(inplace=False),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=False),
+        )
+        self.fc_mu = nn.Linear(256, latent_dim)
+        self.fc_logvar = nn.Linear(256, latent_dim)
+
+    def forward(self, x):
+        h = self.model(x)
+        return self.fc_mu(h), self.fc_logvar(h)
+
+# Reparameterization
+def reparameterize(mu, logvar):
+    std = torch.exp(0.5 * logvar)
+    eps = torch.randn_like(std)
+    return mu + eps * std
+
+# Decoder (Generator)
+class Decoder(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Linear(latent_dim, 256),
+            nn.ReLU(inplace=False),
+            nn.Linear(256, 512),
+            nn.ReLU(inplace=False),
+            nn.Linear(512, 28*28),
+            nn.Sigmoid(),
+            nn.Unflatten(1, (1, 28, 28))
+        )
+
+    def forward(self, z):
+        return self.model(z)
+
+# Discriminator
+class Discriminator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28*28, 512),
+            nn.LeakyReLU(0.2, inplace=False),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=False),
+            nn.Linear(256, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+# Instantiate models
+encoder = Encoder(latent_dim).to(device)
+decoder = Decoder(latent_dim).to(device)
+discriminator = Discriminator().to(device)
+
+# Optimizers
+optimizer_E = optim.Adam(encoder.parameters(), lr=learning_rate)
+optimizer_G = optim.Adam(decoder.parameters(), lr=learning_rate)
+optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
+
+
+
+```
+
+# Training loop
+
+```{python}
+
+# Training loop
+for epoch in range(num_epochs):
+    encoder.train()
+    decoder.train()
+    discriminator.train()
+
+    total_vae_loss = 0
+    total_gan_loss = 0
+    total_d_loss = 0
+
+    for x, _ in train_loader:
+        x = x.to(device)
+        
+        # === VAE LOSS ===
+        mu, logvar = encoder(x)
+        z = reparameterize(mu, logvar)
+        x_recon = decoder(z)
+
+        recon_loss = F.binary_cross_entropy(x_recon, x, reduction='sum') / x.size(0)
+        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
+        vae_l = recon_loss + kl_div
+
+        optimizer_E.zero_grad()
+        optimizer_G.zero_grad()
+        vae_l.backward(retain_graph=True)
+        optimizer_E.step()
+        optimizer_G.step()
+
+        # === GAN LOSS ===
+        # Recompute z and x_recon for GAN part to avoid in-place issues
+        mu, logvar = encoder(x)
+        z = reparameterize(mu, logvar)
+        x_recon_gan = decoder(z)
+
+        real = torch.ones(x.size(0), 1, device=device)
+        fake = torch.zeros(x.size(0), 1, device=device)
+
+        # Train Discriminator
+        D_real = discriminator(x)
+        D_fake = discriminator(x_recon_gan.detach())
+
+        D_loss_real = F.binary_cross_entropy(D_real, real)
+        D_loss_fake = F.binary_cross_entropy(D_fake, fake)
+        D_loss = D_loss_real + D_loss_fake
+
+        optimizer_D.zero_grad()
+        D_loss.backward()
+        optimizer_D.step()
+
+        # Train Generator
+        G_fake = discriminator(x_recon_gan)
+        G_loss = F.binary_cross_entropy(G_fake, real)
+
+        optimizer_G.zero_grad()
+        G_loss.backward()
+        optimizer_G.step()
+
+        total_vae_loss += vae_l.item()
+        total_gan_loss += G_loss.item()
+        total_d_loss += D_loss.item()
+
+    print(f"Epoch [{epoch+1}/{num_epochs}]\t"
+          f"VAE Loss: {total_vae_loss/len(train_loader):.4f}\t"
+          f"GAN G Loss: {total_gan_loss/len(train_loader):.4f}\t"
+          f"D Loss: {total_d_loss/len(train_loader):.4f}")
+
+
+
+```
+
+
+# Evaluation and sample generation
+
+```{python}
+# Generate samples
+decoder.eval()
+with torch.no_grad():
+    z = torch.randn(10, latent_dim).to(device)
+    samples = decoder(z).cpu().numpy()
+
+fig, axes = plt.subplots(1, 10, figsize=(15, 2))
+for i in range(10):
+    axes[i].imshow(samples[i].squeeze(), cmap='gray')
+    axes[i].axis('off')
+plt.suptitle('VAE-GAN Generated Samples')
+plt.show()
+
+
+
+```
+
+
+# Train discriminator on subset of the dataset
+
+
+the previous discriminator was trained using the entire dataset.
+
+What if we simulate a scenario in which there is only a subset of the dataset - the decimator will be an expert trained on a specific category of the dataset, and then we will evaluate its performance on the entire dataset.
+
+First we will train a discrimator with only the sandles category, and then we will evaluate its performance on the entire dataset.
+
+
+```{python}
+
+# Class label for 'Sandal'
+sandal_label = 5
+# Get indices of only 'sandal' images
+sandal_indices = np.where(np.array(train_dataset.targets) == sandal_label)[0]
+# Create a new dataset only with sandals
+sandal_dataset = Subset(train_dataset, sandal_indices)
+# Create a new DataLoader for sandals
+sandal_loader = DataLoader(sandal_dataset, batch_size=batch_size, shuffle=True)
+
+
+# Class label for 'Ankle boot'
+boot_label = 9
+# Get indices of only 'ankle boot' images
+boot_indices = np.where(np.array(train_dataset.targets) == boot_label)[0]
+# Create a new dataset only with boots
+boot_dataset = Subset(train_dataset, boot_indices)
+# Create a new DataLoader for boots
+boot_loader = DataLoader(boot_dataset, batch_size=batch_size, shuffle=True)
+
+
+
+```
+
+
+
+```{python}
+
+# Instantiate two discriminators
+sandal_discriminator = Discriminator().to(device)
+boot_discriminator = Discriminator().to(device)
+
+# Separate optimizers
+optimizer_D_sandal = optim.Adam(sandal_discriminator.parameters(), lr=learning_rate)
+optimizer_D_boot = optim.Adam(boot_discriminator.parameters(), lr=learning_rate)
+
+
+```
+
+
+```{python}
+
+
+def train_discriminator_on_subset(discriminator, data_loader, encoder, decoder, optimizer, device, num_epochs=5, label='Subset'):
+    discriminator.train()
+    
+    for epoch in range(num_epochs):
+        total_loss = 0
+        for x, _ in data_loader:
+            x = x.to(device)
+            real = torch.ones(x.size(0), 1, device=device)
+            fake = torch.zeros(x.size(0), 1, device=device)
+
+            # Generate fake images
+            with torch.no_grad():
+                mu, logvar = encoder(x)
+                z = reparameterize(mu, logvar)
+                x_fake = decoder(z)
+
+            D_real = discriminator(x)
+            D_fake = discriminator(x_fake.detach())
+
+            loss_real = F.binary_cross_entropy(D_real, real)
+
+
+```
+
+
+```{python}
+
+# Train sandal discriminator
+train_discriminator_on_subset(
+    discriminator=sandal_discriminator,
+    data_loader=sandal_loader,
+    encoder=encoder,
+    decoder=decoder,
+    optimizer=optimizer_D_sandal,
+    device=device,
+    num_epochs=5,
+    label="Sandal"
+)
+
+# Train boot discriminator
+train_discriminator_on_subset(
+    discriminator=boot_discriminator,
+    data_loader=boot_loader,
+    encoder=encoder,
+    decoder=decoder,
+    optimizer=optimizer_D_boot,
+    device=device,
+    num_epochs=5,
+    label="Boot"
+)
+
+
+
+```
+
+
+# Test our discrimators on testing dataset
+
+
+```{python}
+
+def evaluate_discriminator(discriminator, encoder, decoder, test_loader, latent_dim, device, label=""):
+    discriminator.eval()
+    real_outputs = []
+    fake_outputs = []
+    classwise_outputs = {i: [] for i in range(10)}  # for analysis per category
+
+    with torch.no_grad():
+        for x, y in test_loader:
+            x = x.to(device)
+            y = y.to(device)
+            real_score = discriminator(x)
+            real_outputs.append(real_score.cpu().numpy())
+
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            x_fake = decoder(z)
+            fake_score = discriminator(x_fake)
+            fake_outputs.append(fake_score.cpu().numpy())
+
+            for i in range(10):
+                mask = y == i
+                if mask.any():
+                    classwise_outputs[i].extend(discriminator(x[mask]).cpu().numpy().flatten().tolist())
+
+    real_mean = np.mean(np.concatenate(real_outputs))
+    fake_mean = np.mean(np.concatenate(fake_outputs))
+
+    print(f"[{label}] Real Image Score Mean: {real_mean:.4f}")
+    print(f"[{label}] Fake Image Score Mean: {fake_mean:.4f}")
+
+    # Plot per-category scores
+    plt.figure(figsize=(10, 4))
+    plt.bar(classwise_outputs.keys(), [np.mean(classwise_outputs[i]) for i in range(10)])
+    plt.xticks(range(10), class_names, rotation=45)
+    plt.ylabel("Discriminator Confidence (Real)")
+    plt.title(f"{label} Discriminator: Real Image Confidence per Class")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+
+```
+
+
+```{python}
+
+evaluate_discriminator(
+    discriminator=sandal_discriminator,
+    encoder=encoder,
+    decoder=decoder,
+    test_loader=test_loader,
+    latent_dim=latent_dim,
+    device=device,
+    label="Sandal"
+)
+
+evaluate_discriminator(
+    discriminator=boot_discriminator,
+    encoder=encoder,
+    decoder=decoder,
+    test_loader=test_loader,
+    latent_dim=latent_dim,
+    device=device,
+    label="Boot"
+)
+
+
+```
+
