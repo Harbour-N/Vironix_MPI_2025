@@ -5,3 +5,8 @@ Private_data/
 MNIST_data/
 
 MNIST_fashion/
+
+#
+.DS_Store
+*.pyc
+
