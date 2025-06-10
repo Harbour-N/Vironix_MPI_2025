@@ -10,3 +10,7 @@ MNIST_fashion/
 .DS_Store
 *.pyc
 
+# all data (for now)
+*.xlsx
+*.csv
+
