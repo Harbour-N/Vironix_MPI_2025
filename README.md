@@ -25,6 +25,8 @@ code/analysis relating to questions of synthetic generation and clinician evalua
   * Statistical/Bayesian: `statsmodels`, `PyMC3`/`Pyro`
   * Visualization: `matplotlib`, `seaborn`
 
+  * pyreadr
+
 * **Style**:
 
   * PEP8 compliance, docstrings for all functions (`numpy` style).
