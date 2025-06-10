@@ -1,0 +1,126 @@
+---
+title: Auto encoder 
+description: balalalbadldb
+authors:
+  - name: Nicholas Harbour
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    number-sections: true
+    toc: true
+    toc-depth: 3
+    date: now
+    date-modified: last-modified
+    date-format: "MMMM DD, YYYY, HH:mm:ss"
+jupyter: python3
+---
+
+
+
+```{python}
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+
+# Device configuration
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Hyperparameters
+batch_size = 128
+learning_rate = 1e-3
+num_epochs = 10
+latent_dim = 32
+
+# Data loading and preprocessing
+transform = transforms.ToTensor()
+
+train_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=True, download=True, transform=transform)
+test_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=False, download=True, transform=transform)
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+# Define the Autoencoder
+class Autoencoder(nn.Module):
+    def __init__(self):
+        super(Autoencoder, self).__init__()
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28*28, 128),
+            nn.ReLU(),
+            nn.Linear(128, latent_dim)
+        )
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 28*28),
+            nn.Sigmoid(),  # Ensure outputs are between 0 and 1
+            nn.Unflatten(1, (1, 28, 28))
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
+
+# Instantiate model, loss, and optimizer
+model = Autoencoder().to(device)
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+# Training loop
+for epoch in range(num_epochs):
+    total_loss = 0
+    for images, _ in train_loader:
+        images = images.to(device)
+        
+        # Forward pass
+        outputs = model(images)
+        loss = criterion(outputs, images)
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    avg_loss = total_loss / len(train_loader)
+    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}')
+
+# Visualize reconstructions
+def show_reconstructions(model, data_loader, num_images=10):
+    model.eval()
+    with torch.no_grad():
+        images, _ = next(iter(data_loader))
+        images = images[:num_images].to(device)
+        outputs = model(images)
+
+    images = images.cpu().numpy()
+    outputs = outputs.cpu().numpy()
+
+    fig, axes = plt.subplots(2, num_images, figsize=(num_images, 2))
+    for i in range(num_images):
+        axes[0, i].imshow(images[i].squeeze(), cmap='gray')
+        axes[0, i].axis('off')
+        axes[1, i].imshow(outputs[i].squeeze(), cmap='gray')
+        axes[1, i].axis('off')
+    axes[0, 0].set_ylabel('Original', fontsize=12)
+    axes[1, 0].set_ylabel('Reconstructed', fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+# Show reconstructions
+show_reconstructions(model, test_loader)
+
+
+```
+
+

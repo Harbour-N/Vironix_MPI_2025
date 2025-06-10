@@ -3,3 +3,5 @@ Private_data/
 
 # Ignore MNIST data
 MNIST_data/
+
+MNIST_fashion/
