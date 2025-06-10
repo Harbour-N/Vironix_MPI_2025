@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import numpy as np
 
+import utils
+
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -20,7 +22,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 batch_size = 128
 learning_rate = 1e-3
 num_epochs = 10
-latent_dim = 32
+latent_dim = 100 # early parameter seeps of bottleneck dim suggest ~100 as an elbow.
 
 # Data loading and preprocessing
 transform = transforms.ToTensor()
@@ -154,9 +156,10 @@ cax=fig.colorbar(scatter2, ticks=range(10), label='Label')
 #plt.clim(-0.5, 9.5) # todo: direct object-oriented version of manipulating colorbar limits?
 ax[1].grid(True)
 
+suffix = utils.tstamp()
 
-fig.savefig('output/fashion_mnist_autoencoder_test.png', bbox_inches='tight')
-fig.savefig('output/fashion_mnist_autoencoder_test.pdf', bbox_inches='tight')
+fig.savefig(f'output/fashion_mnist_autoencoder_test_{suffix}.png', bbox_inches='tight')
+fig.savefig(f'output/fashion_mnist_autoencoder_test_{suffix}.pdf', bbox_inches='tight')
 
 #########
 

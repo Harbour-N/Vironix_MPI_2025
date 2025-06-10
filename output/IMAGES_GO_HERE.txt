@@ -1,0 +1,1 @@
+try to make your scripts output images to this folder.
