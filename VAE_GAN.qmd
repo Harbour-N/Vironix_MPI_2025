@@ -146,74 +146,132 @@ optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
 # Training loop
 
 ```{python}
+def train_vae_gan(
+    encoder, decoder, discriminator,
+    train_loader,
+    optimizer_E, optimizer_G, optimizer_D,
+    device,
+    num_epochs=10,
+    verbose=True,
+    label="Full"
+):
+    vae_loss_hist = []
+    gan_loss_hist = []
+    d_loss_hist = []
 
-# Training loop
-for epoch in range(num_epochs):
-    encoder.train()
-    decoder.train()
-    discriminator.train()
+    for epoch in range(num_epochs):
+        encoder.train()
+        decoder.train()
+        discriminator.train()
 
-    total_vae_loss = 0
-    total_gan_loss = 0
-    total_d_loss = 0
+        total_vae_loss = 0
+        total_gan_loss = 0
+        total_d_loss = 0
 
-    for x, _ in train_loader:
-        x = x.to(device)
-        
-        # === VAE LOSS ===
-        mu, logvar = encoder(x)
-        z = reparameterize(mu, logvar)
-        x_recon = decoder(z)
+        for x, _ in train_loader:
+            x = x.to(device)
 
-        recon_loss = F.binary_cross_entropy(x_recon, x, reduction='sum') / x.size(0)
-        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
-        vae_l = recon_loss + kl_div
+            # VAE loss
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            x_recon = decoder(z)
 
-        optimizer_E.zero_grad()
-        optimizer_G.zero_grad()
-        vae_l.backward(retain_graph=True)
-        optimizer_E.step()
-        optimizer_G.step()
+            recon_loss = F.binary_cross_entropy(x_recon, x, reduction='sum') / x.size(0)
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
+            vae_l = recon_loss + kl_div
 
-        # === GAN LOSS ===
-        # Recompute z and x_recon for GAN part to avoid in-place issues
-        mu, logvar = encoder(x)
-        z = reparameterize(mu, logvar)
-        x_recon_gan = decoder(z)
+            optimizer_E.zero_grad()
+            optimizer_G.zero_grad()
+            vae_l.backward(retain_graph=True)
+            optimizer_E.step()
+            optimizer_G.step()
 
-        real = torch.ones(x.size(0), 1, device=device)
-        fake = torch.zeros(x.size(0), 1, device=device)
+            # GAN loss
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            x_recon_gan = decoder(z)
 
-        # Train Discriminator
-        D_real = discriminator(x)
-        D_fake = discriminator(x_recon_gan.detach())
+            real = torch.ones(x.size(0), 1, device=device)
+            fake = torch.zeros(x.size(0), 1, device=device)
 
-        D_loss_real = F.binary_cross_entropy(D_real, real)
-        D_loss_fake = F.binary_cross_entropy(D_fake, fake)
-        D_loss = D_loss_real + D_loss_fake
+            # Discriminator step
+            D_real = discriminator(x)
+            D_fake = discriminator(x_recon_gan.detach())
+            D_loss_real = F.binary_cross_entropy(D_real, real)
+            D_loss_fake = F.binary_cross_entropy(D_fake, fake)
+            D_loss = D_loss_real + D_loss_fake
 
-        optimizer_D.zero_grad()
-        D_loss.backward()
-        optimizer_D.step()
+            optimizer_D.zero_grad()
+            D_loss.backward()
+            optimizer_D.step()
 
-        # Train Generator
-        G_fake = discriminator(x_recon_gan)
-        G_loss = F.binary_cross_entropy(G_fake, real)
+            # Generator step
+            G_fake = discriminator(x_recon_gan)
+            G_loss = F.binary_cross_entropy(G_fake, real)
 
-        optimizer_G.zero_grad()
-        G_loss.backward()
-        optimizer_G.step()
+            optimizer_G.zero_grad()
+            G_loss.backward()
+            optimizer_G.step()
 
-        total_vae_loss += vae_l.item()
-        total_gan_loss += G_loss.item()
-        total_d_loss += D_loss.item()
+            total_vae_loss += vae_l.item()
+            total_gan_loss += G_loss.item()
+            total_d_loss += D_loss.item()
 
-    print(f"Epoch [{epoch+1}/{num_epochs}]\t"
-          f"VAE Loss: {total_vae_loss/len(train_loader):.4f}\t"
-          f"GAN G Loss: {total_gan_loss/len(train_loader):.4f}\t"
-          f"D Loss: {total_d_loss/len(train_loader):.4f}")
+        # Save losses
+        avg_vae = total_vae_loss / len(train_loader)
+        avg_gan = total_gan_loss / len(train_loader)
+        avg_d = total_d_loss / len(train_loader)
+
+        vae_loss_hist.append(avg_vae)
+        gan_loss_hist.append(avg_gan)
+        d_loss_hist.append(avg_d)
+
+        if verbose:
+            print(f"[{label}] Epoch [{epoch+1}/{num_epochs}] "
+                  f"VAE Loss: {avg_vae:.4f} | GAN G Loss: {avg_gan:.4f} | D Loss: {avg_d:.4f}")
+
+    return vae_loss_hist, gan_loss_hist, d_loss_hist
 
 
+def plot_vae_gan_losses(vae_loss, gan_loss, d_loss, title="Training Loss Curves"):
+    epochs = range(1, len(vae_loss) + 1)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, vae_loss, label="VAE Loss")
+    plt.plot(epochs, gan_loss, label="Generator Loss (G)")
+    plt.plot(epochs, d_loss, label="Discriminator Loss (D)")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+```
+
+
+```{python}
+
+vae_loss_hist, gan_loss_hist, d_loss_hist = train_vae_gan(
+    encoder=encoder,
+    decoder=decoder,
+    discriminator=discriminator,
+    train_loader=train_loader,
+    optimizer_E=optimizer_E,
+    optimizer_G=optimizer_G,
+    optimizer_D=optimizer_D,
+    device=device,
+    num_epochs=num_epochs,
+    label="Full Training"
+)
+
+
+plot_vae_gan_losses(
+    vae_loss=vae_loss_hist,
+    gan_loss=gan_loss_hist,
+    d_loss=d_loss_hist,
+    title="VAE-GAN Training Loss Curves"
+)
 
 ```
 
@@ -231,7 +289,7 @@ fig, axes = plt.subplots(1, 10, figsize=(15, 2))
 for i in range(10):
     axes[i].imshow(samples[i].squeeze(), cmap='gray')
     axes[i].axis('off')
-plt.suptitle('VAE-GAN Generated Samples')
+plt.suptitle('Full VAE-GAN Generated Samples')
 plt.show()
 
 
@@ -293,11 +351,17 @@ optimizer_D_boot = optim.Adam(boot_discriminator.parameters(), lr=learning_rate)
 ```{python}
 
 
-def train_discriminator_on_subset(discriminator, data_loader, encoder, decoder, optimizer, device, num_epochs=5, label='Subset'):
+def train_discriminator_on_subset(
+    discriminator, data_loader, encoder, decoder,
+    optimizer, device, num_epochs=5, label='Subset'
+):
     discriminator.train()
-    
+    loss_history = []
+
     for epoch in range(num_epochs):
         total_loss = 0
+        num_batches = 0
+
         for x, _ in data_loader:
             x = x.to(device)
             real = torch.ones(x.size(0), 1, device=device)
@@ -309,10 +373,29 @@ def train_discriminator_on_subset(discriminator, data_loader, encoder, decoder, 
                 z = reparameterize(mu, logvar)
                 x_fake = decoder(z)
 
+            # Discriminator forward passes
             D_real = discriminator(x)
             D_fake = discriminator(x_fake.detach())
 
+            # Losses
             loss_real = F.binary_cross_entropy(D_real, real)
+            loss_fake = F.binary_cross_entropy(D_fake, fake)
+            loss = loss_real + loss_fake
+
+            # Backprop and optimizer step
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            num_batches += 1
+
+        avg_loss = total_loss / num_batches
+        loss_history.append(avg_loss)
+        print(f"[{label}] Epoch [{epoch + 1}/{num_epochs}] - Discriminator Loss: {avg_loss:.4f}")
+
+    return loss_history
+
 
 
 ```
@@ -328,7 +411,7 @@ train_discriminator_on_subset(
     decoder=decoder,
     optimizer=optimizer_D_sandal,
     device=device,
-    num_epochs=5,
+    num_epochs=10,
     label="Sandal"
 )
 
@@ -340,7 +423,7 @@ train_discriminator_on_subset(
     decoder=decoder,
     optimizer=optimizer_D_boot,
     device=device,
-    num_epochs=5,
+    num_epochs=10,
     label="Boot"
 )
 
@@ -419,6 +502,18 @@ evaluate_discriminator(
     latent_dim=latent_dim,
     device=device,
     label="Boot"
+)
+
+
+# evaluate the original discriminator trained on the full dataset
+evaluate_discriminator(
+    discriminator=discriminator,
+    encoder=encoder,
+    decoder=decoder,
+    test_loader=test_loader,
+    latent_dim=latent_dim,
+    device=device,
+    label="Full Dataset"
 )
 
 
