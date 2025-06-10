@@ -1,0 +1,5 @@
+# do not load in data in the private data folder
+Private_data/
+
+# Ignore MNIST data
+MNIST_data/
