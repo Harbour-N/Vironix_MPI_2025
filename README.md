@@ -30,4 +30,9 @@ code/analysis relating to questions of synthetic generation and clinician evalua
   * PEP8 compliance, docstrings for all functions (`numpy` style).
 
 ## Getting started
-???
+
+1. **Clone the repo**  
+   ```bash
+   git clone https://github.com/Harbour-N/Vironix_MPI_2025.git
+   cd Vironix_MPI_2025
+   
