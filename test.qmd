@@ -345,4 +345,39 @@ plt.show()
 
 
 
+```{python}
+
+
+# Get real images
+real_batch = next(iter(dataloader))
+real_images = [img.cpu() for img in real_batch[0].to(device)[:3]]
+
+# Generate 2 fake images
+with torch.no_grad():
+    fake_imgs = netG(torch.randn(2, Z_DIM, 1, 1, device=device)).cpu()
+
+# Create ordered list: Image 1 and 4 are fake, others real
+images_ordered = [
+    (fake_imgs[0], 'Fake'),
+    (real_images[0], 'Real'),
+    (real_images[1], 'Real'),
+    (fake_imgs[1], 'Fake'),
+    (real_images[2], 'Real'),
+]
+
+# Plot
+fig, axes = plt.subplots(1, 5, figsize=(15, 3))
+for i, (ax, (img, label)) in enumerate(zip(axes, images_ordered), 1):
+    img = (img + 1) / 2  # Unnormalize from [-1, 1] to [0, 1]
+    ax.imshow(img.squeeze(), cmap='gray')
+    ax.set_title(f"Image {i}", fontsize=20)
+    ax.axis("off")
+
+plt.tight_layout()
+plt.show()
+
+```
+
+
+
 
