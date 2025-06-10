@@ -1,5 +1,5 @@
 ---
-title: Auto encoder for MNIST Fashion dataset
+title: GAN using autoencoders
 description: balalalbadldb
 authors:
   - name: Nicholas Harbour
@@ -44,6 +44,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ```
 
 
+# Download the Fashion MNIST dataset
+
 ```{python}
 
 # Hyperparameters
@@ -63,6 +65,25 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 
 ```
+
+
+# Basic EDA
+
+```{python}
+
+print(f'Train dataset size: {len(train_dataset)}')
+print(f'Test dataset size: {len(test_dataset)}')
+
+print(f'Number of classes: {len(train_dataset.classes)}')
+print(f'Classes: {train_dataset.classes}')
+
+print(f'Image shape: {train_dataset[0][0].shape}')  # Shape of the first image
+
+
+```
+
+
+# Define the Autoencoder model
 
 ```{python}
 
@@ -220,5 +241,128 @@ show_reconstructions(model, test_loader)
 
 
 ```
+
+
+
+# Train a discriminator to classify the embeddings
+
+
+```{python}
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28 * 28, 512),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+
+            nn.Linear(256, 1),
+            nn.Sigmoid()  # Outputs a probability that the image is real
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+
+```
+
+
+
+```{python}
+
+# Instantiate the Discriminator and define loss and optimizer
+discriminator = Discriminator().to(device)
+d_criterion = nn.BCELoss()
+d_optimizer = optim.Adam(discriminator.parameters(), lr=1e-4)
+
+# Number of epochs for discriminator training
+num_d_epochs = 5
+
+# Training loop for discriminator
+for epoch in range(num_d_epochs):
+    total_loss = 0
+    discriminator.train()
+
+    for real_images, _ in train_loader:
+        real_images = real_images.to(device)
+        
+        # -----------------------------
+        # Train on real images (label = 1)
+        # -----------------------------
+        real_labels = torch.ones(real_images.size(0), 1).to(device)
+        real_preds = discriminator(real_images)
+        real_loss = d_criterion(real_preds, real_labels)
+
+        # -----------------------------
+        # Train on fake images (reconstructed, label = 0)
+        # -----------------------------
+        with torch.no_grad():  # Do not backprop into autoencoder
+            fake_images = model(real_images)
+        fake_labels = torch.zeros(fake_images.size(0), 1).to(device)
+        fake_preds = discriminator(fake_images)
+        fake_loss = d_criterion(fake_preds, fake_labels)
+
+        # -----------------------------
+        # Backpropagation
+        # -----------------------------
+        loss = real_loss + fake_loss
+        d_optimizer.zero_grad()
+        loss.backward()
+        d_optimizer.step()
+
+        total_loss += loss.item()
+
+    avg_loss = total_loss / len(train_loader)
+    print(f'[Epoch {epoch+1}/{num_d_epochs}] Discriminator Loss: {avg_loss:.4f}')
+
+
+
+```
+
+
+```{python}
+
+
+def evaluate_discriminator(discriminator, model, data_loader):
+    discriminator.eval()
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, _ in data_loader:
+            images = images.to(device)
+            real_preds = discriminator(images)
+            fake_images = model(images)
+            fake_preds = discriminator(fake_images)
+
+            real_preds_label = (real_preds > 0.5).float()
+            fake_preds_label = (fake_preds > 0.5).float()
+
+            correct += real_preds_label.sum().item()
+            correct += (1 - fake_preds_label).sum().item()
+            total += 2 * images.size(0)
+
+    accuracy = correct / total
+    print(f'Discriminator Accuracy: {accuracy:.4f}')
+
+
+```
+
+
+```{python}
+
+
+# Evaluate the discriminator
+evaluate_discriminator(discriminator, model, test_loader)
+
+```
+
 
 
