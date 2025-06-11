@@ -341,3 +341,109 @@ plt.tight_layout(rect=[0.05, 0, 1, 1])  # Leave space for labels
 plt.show()
 
 ```
+
+
+```{python}
+
+
+# Train the VAE-GAN on the subset
+
+vae_loss_sandal_boot, gan_loss_sandal_boot, d_loss_sandal_boot = train_vae_gan(
+    encoder, decoder, discriminator,
+    sandal_boot_loader,
+    optimizer_E, optimizer_G, optimizer_D,
+    device,
+    num_epochs=num_epochs,
+    verbose=True,
+    label="Sandal-Boot"
+)
+
+```
+
+
+
+```{python}
+
+# Put encoder in eval mode
+encoder.eval()
+
+all_z = []
+all_labels = []
+
+with torch.no_grad():
+    for x, _ in sandal_boot_loader:
+        x = x.to(device)
+        mu, logvar = encoder(x)
+        z = reparameterize(mu, logvar)
+        all_z.append(z.cpu())
+        all_labels.append(_.cpu())
+
+# Stack all embeddings and labels
+z_concat = torch.cat(all_z).numpy()
+labels_concat = torch.cat(all_labels).numpy()
+
+
+```
+
+
+```{python}
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.decomposition import PCA
+
+# Fit PCA on the latent space embeddings
+pca = PCA(n_components=2)
+x_pca = pca.fit_transform(z_concat)
+
+# Boolean masks for sandals and boots
+sandal_mask = labels_concat == sandal_label  # usually label 5
+boot_mask = labels_concat == boot_label      # usually label 9
+
+# Compute class centroids in latent space
+centroid_latent_sandal = z_concat[sandal_mask].mean(axis=0)
+centroid_latent_boot = z_concat[boot_mask].mean(axis=0)
+
+# Generate a new latent point (midpoint or other logic)
+new_latent_point = 0.5 * (centroid_latent_sandal + centroid_latent_boot)+2
+
+# Project centroids and new point to PCA space
+centroid_pca_sandal = pca.transform(centroid_latent_sandal.reshape(1, -1))
+centroid_pca_boot = pca.transform(centroid_latent_boot.reshape(1, -1))
+new_point_pca = pca.transform(new_latent_point.reshape(1, -1))
+
+# Plot
+plt.figure(figsize=(10, 6))
+plt.plot(x_pca[sandal_mask, 0], x_pca[sandal_mask, 1], 'ro', markersize=5, label='Sandals', alpha = 0.05)
+plt.plot(x_pca[boot_mask, 0], x_pca[boot_mask, 1], 'bo', markersize=5, label='Boots', alpha = 0.05)
+plt.title('PCA of VAE-GAN Embeddings (Sandal-Boot)')
+plt.xlabel('PCA Component 1')
+plt.ylabel('PCA Component 2')
+
+# Plot centroids
+plt.plot(centroid_pca_sandal[0, 0], centroid_pca_sandal[0, 1], 'r*', markersize=10, label='Sandal Centroid')
+plt.plot(centroid_pca_boot[0, 0], centroid_pca_boot[0, 1], 'b*', markersize=10, label='Boot Centroid')
+
+# Plot new point
+plt.plot(new_point_pca[0, 0], new_point_pca[0, 1], 'x', markersize=10, label='New Point',color = 'k')
+
+# Draw arrows from centroids to new point
+plt.arrow(centroid_pca_sandal[0, 0], centroid_pca_sandal[0, 1],
+          new_point_pca[0, 0] - centroid_pca_sandal[0, 0],
+          new_point_pca[0, 1] - centroid_pca_sandal[0, 1],
+          color='red', width=0.02, head_width=0.2, length_includes_head=True)
+
+plt.arrow(centroid_pca_boot[0, 0], centroid_pca_boot[0, 1],
+          new_point_pca[0, 0] - centroid_pca_boot[0, 0],
+          new_point_pca[0, 1] - centroid_pca_boot[0, 1],
+          color='blue', width=0.02, head_width=0.2, length_includes_head=True)
+
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+
+```
+
+
