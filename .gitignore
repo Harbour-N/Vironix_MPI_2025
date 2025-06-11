@@ -13,4 +13,5 @@ MNIST_fashion/
 # all data (for now)
 *.xlsx
 *.csv
-
+*.pq
+admissionprediction/
