@@ -1,0 +1,1 @@
+Attached are CSV files for the group with higher and group with lower eGFR than the mean eGFR of the CKD-patient population. Code to process the data is also available. Full data of Hong is available, accessed by "https://github.com/yaleemmlc/admissionprediction.git".
