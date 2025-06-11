@@ -1,5 +1,5 @@
 ---
-title: Combinig biased estimators
+title: make plot
 description: balalalbadldb
 authors:
   - name: Nicholas Harbour
@@ -15,7 +15,6 @@ format:
     date-format: "MMMM DD, YYYY, HH:mm:ss"
 jupyter: python3
 ---
-
 
 
 
@@ -309,276 +308,36 @@ plt.show()
 ```
 
 
-# Train the VAE-GAN on the subset
 
 
-```{python}
-
-vae_loss_sandal_boot, gan_loss_sandal_boot, d_loss_sandal_boot = train_vae_gan(
-    encoder, decoder, discriminator,
-    sandal_boot_loader,
-    optimizer_E, optimizer_G, optimizer_D,
-    device,
-    num_epochs=num_epochs,
-    verbose=True,
-    label="Sandal-Boot"
-)
-
-```
-
+Plot 1 column of sandals and 1 column of boots 
 
 ```{python}
 
-# Put encoder in eval mode
-encoder.eval()
+n_examples = 4
 
-all_z = []
-all_labels = []
+# Get indices for sandals and boots separately
+sandal_only_indices = random.sample(list(sandal_indices), n_examples)
+boot_only_indices = random.sample(list(boot_indices), n_examples)
 
-with torch.no_grad():
-    for x, _ in sandal_boot_loader:
-        x = x.to(device)
-        mu, logvar = encoder(x)
-        z = reparameterize(mu, logvar)
-        all_z.append(z.cpu())
-        all_labels.append(_.cpu())
+fig, ax = plt.subplots(2, n_examples, figsize=(2 * n_examples, 4))
 
-# Stack all embeddings and labels
-z_concat = torch.cat(all_z).numpy()
-labels_concat = torch.cat(all_labels).numpy()
+for i in range(n_examples):
+    # Sandals in first row
+    sandal_img, _ = train_dataset[sandal_only_indices[i]]
+    ax[0, i].imshow(sandal_img.squeeze().numpy(), cmap='gray')
+    ax[0, i].axis('off')
 
-```
+    # Boots in second row
+    boot_img, _ = train_dataset[boot_only_indices[i]]
+    ax[1, i].imshow(boot_img.squeeze().numpy(), cmap='gray')
+    ax[1, i].axis('off')
 
-perform PCA on the embeddings to visualise
+# Add row labels
+fig.text(0.02, 0.75, "Expert A (Sandals)", fontsize=12, weight='bold', va='center', rotation='vertical')
+fig.text(0.02, 0.28, "Expert B (Boots)", fontsize=12, weight='bold', va='center', rotation='vertical')
 
-
-```{python}
-
-
-pca = PCA(n_components=2)
-x_pca = pca.fit_transform(z_concat)
-plt.figure(figsize=(10, 6))
-plt.plot(x_pca[labels_concat == sandal_label, 0], 
-         x_pca[labels_concat == sandal_label, 1], 
-         'o', label='Sandal', alpha=0.7, markersize=5)
-plt.plot(x_pca[labels_concat == boot_label, 0],
-            x_pca[labels_concat == boot_label, 1], 
-            'o', label='Ankle Boot', alpha=0.7, markersize=5)
-plt.title('PCA of VAE-GAN Embeddings (Sandal-Boot)')
-plt.xlabel('PCA Component 1')
-plt.ylabel('PCA Component 2')
-plt.legend()
-plt.grid(True)
+plt.tight_layout(rect=[0.05, 0, 1, 1])  # Leave space for labels
 plt.show()
 
-
 ```
-
-
-# Perform Kernel Density Estimation (KDE) on the embeddings
-
-
-```{python}
-
-from scipy.stats import gaussian_kde
-
-# Split embeddings (z vectors) by class
-z_sandal = z_concat[labels_concat == sandal_label]
-z_boot = z_concat[labels_concat == boot_label]
-
-# Fit KDEs on full latent space (latent_dim-dimensional)
-kde_sandal = gaussian_kde(z_sandal.T)  # Note: needs shape (D, N)
-kde_boot = gaussian_kde(z_boot.T)
-
-```
-
-```{python}
-
-# Example latent point
-z_example = z_sandal[0]  # Or generate a new point
-
-# Evaluate log-probability under each KDE
-log_p_sandal = kde_sandal.logpdf(z_example)
-log_p_boot = kde_boot.logpdf(z_example)
-
-print(f"Log P(sandal): {log_p_sandal.item():.2f}")
-print(f"Log P(boot):   {log_p_boot.item():.2f}")
-
-
-```
-
-
-```{python}
-
-# 2D slice through two latent dims
-from matplotlib import cm
-
-i, j = 0, 1  # select latent dims to visualize
-xmin, xmax = z_concat[:, i].min(), z_concat[:, i].max()
-ymin, ymax = z_concat[:, j].min(), z_concat[:, j].max()
-xx, yy = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
-grid = np.vstack([xx.ravel(), yy.ravel()])
-
-# Build extended grid with D dimensions, rest fixed at zero
-grid_d = np.zeros((latent_dim, grid.shape[1]))
-grid_d[i, :] = grid[0]
-grid_d[j, :] = grid[1]
-
-# Evaluate both KDEs
-zz_sandal = kde_sandal(grid_d).reshape(xx.shape)
-zz_boot = kde_boot(grid_d).reshape(xx.shape)
-
-# Plot comparison
-plt.figure(figsize=(12, 5))
-plt.subplot(1, 2, 1)
-plt.contourf(xx, yy, zz_sandal, cmap='Reds')
-plt.title(f"KDE (Sandal) on latent dims {i}-{j}")
-plt.xlabel(f"z[{i}]")
-plt.ylabel(f"z[{j}]")
-
-plt.subplot(1, 2, 2)
-plt.contourf(xx, yy, zz_boot, cmap='Blues')
-plt.title(f"KDE (Boot) on latent dims {i}-{j}")
-plt.xlabel(f"z[{i}]")
-plt.ylabel(f"z[{j}]")
-
-plt.tight_layout()
-plt.show()
-
-
-```
-
-
-# Sample a new point in latent space and caluclate the weights
-
-
-```{python}
-
-def calc_weights(point, kde_sandal, kde_boot):
-    """
-    Calculate the weights for a new point based on KDEs.
-    """
-    log_p_sandal = kde_sandal.logpdf(point)
-    log_p_boot = kde_boot.logpdf(point)
-    
-    # Convert log probabilities to probabilities
-    p_sandal = np.exp(log_p_sandal)
-    p_boot = np.exp(log_p_boot)
-    
-    # Normalize to get weights
-    total = p_sandal + p_boot
-    weight_sandal = p_sandal / total
-    weight_boot = p_boot / total # this are similarity scores
-
-    weight_sandal = 1 - weight_sandal
-    weight_boot = 1 - weight_boot
-    
-    return weight_sandal, weight_boot
-
-
-
-```
-
-
-```{python}
-
-# Generate 3 random points that are in different regions of latent space
-# Compute mean latent vectors
-mean_sandal = torch.tensor(z_sandal.mean(axis=0), dtype=torch.float32).to(device)
-mean_boot = torch.tensor(z_boot.mean(axis=0), dtype=torch.float32).to(device) * torch.randn_like(mean_boot)*20
-
-# Interpolate between them
-middle_point = 0.5 * ( torch.tensor(z_sandal.mean(axis=0), dtype=torch.float32).to(device) +  torch.tensor(z_boot.mean(axis=0), dtype=torch.float32).to(device))
-
-# Now you have 3 meaningful latent points
-new_point_1 = mean_sandal  # black
-new_point_2 = mean_boot    # Green
-new_point_3 = middle_point # Pink
-
-
-# Calulate the weights
-weight_1 = calc_weights(new_point_1.cpu().numpy(), kde_sandal, kde_boot)
-weight_2 = calc_weights(new_point_2.cpu().numpy(), kde_sandal, kde_boot)
-weight_3 = calc_weights(new_point_3.cpu().numpy(), kde_sandal, kde_boot)
-
-print(f"New Point 1 Weights: {weight_1}")
-print(f"New Point 2 Weights: {weight_2}")
-print(f"New Point 3 Weights: {weight_3}")
-
-
-plt.figure(figsize=(10, 6))
-plt.plot(x_pca[labels_concat == sandal_label, 0], 
-         x_pca[labels_concat == sandal_label, 1], 
-         'o', label='Sandal', alpha=0.1, markersize=5)
-plt.plot(x_pca[labels_concat == boot_label, 0],
-            x_pca[labels_concat == boot_label, 1], 
-            'o', label='Ankle Boot', alpha=0.1, markersize=5)
-plt.plot(new_point_1[0].item(), new_point_1[1].item(), 
-         'x', color='black', markersize=10, label='New Point')
-plt.plot(new_point_2[0].item(), new_point_2[1].item(), 
-         'x', color='green', markersize=10)
-plt.plot(new_point_3[0].item(), new_point_3[1].item(), 
-         'x', color='m', markersize=10)
-plt.title('PCA of VAE-GAN Embeddings (Sandal-Boot)')
-plt.xlabel('PCA Component 1')
-plt.ylabel('PCA Component 2')
-plt.legend()
-plt.grid(True)
-plt.show()
-
-
-```
-
-# Make plot for Wednesday presentation
-```{python}
-
-
-
-# Generate 3 random points that are in different regions of latent space
-# Compute mean latent vectors
-mean_sandal = torch.tensor(z_sandal.mean(axis=0), dtype=torch.float32).to(device) + 5
-mean_boot = torch.tensor(z_boot.mean(axis=0), dtype=torch.float32).to(device) * torch.randn_like(mean_boot)*20 -2
-
-# Interpolate between them
-middle_point = 0.5 * ( torch.tensor(z_sandal.mean(axis=0), dtype=torch.float32).to(device) +  torch.tensor(z_boot.mean(axis=0), dtype=torch.float32).to(device))
-
-# Now you have 3 meaningful latent points
-new_point_1 = mean_sandal  # black
-new_point_2 = mean_boot    # Green
-new_point_3 = middle_point # Pink
-
-
-
-
-print(f"New Point 1 Weights: {weight_1}")
-print(f"New Point 2 Weights: {weight_2}")
-print(f"New Point 3 Weights: {weight_3}")
-
-
-plt.figure(figsize=(10, 6))
-plt.plot(x_pca[labels_concat == sandal_label, 0], 
-         x_pca[labels_concat == sandal_label, 1], 
-         'o', label='Sandal', alpha=0.05, markersize=5)
-plt.plot(x_pca[labels_concat == boot_label, 0],
-            x_pca[labels_concat == boot_label, 1], 
-            'o', label='Ankle Boot', alpha=0.05, markersize=5)
-plt.plot(new_point_1[0].item(), new_point_1[1].item(), 
-         'x', color='black', markersize=10, label='New Point')
-plt.plot(new_point_2[0].item(), new_point_2[1].item(), 
-         'x', color='green', markersize=10)
-plt.plot(new_point_3[0].item(), new_point_3[1].item(), 
-         'x', color='m', markersize=10)
-plt.title('PCA of VAE-GAN Embeddings (Sandal-Boot)')
-plt.xlabel('PCA Component 1')
-plt.ylabel('PCA Component 2')
-plt.legend()
-plt.grid(True)
-plt.show()
-
-
-
-
-```
-
-
-
