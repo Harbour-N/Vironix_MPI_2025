@@ -108,8 +108,7 @@ if __name__=="__main__":
 
     fig,ax = plt.subplots(1,2, figsize=(10,5), sharex=True, sharey=True, constrained_layout=True)
 
-    #for i in range(df_sub.shape[0]):
-    row = df_sub.iloc[0].values
+    row = df.iloc[0].values
 
     row_aki = sim_aki_event(row, p=0.5)
     row_bigdrop = sim_egfr_drop_event(row, p=0.5)
