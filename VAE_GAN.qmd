@@ -46,6 +46,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ```{python}
 
+# Hyperparameters and dataset
+
 # Hyperparameters
 batch_size = 128
 learning_rate = 2e-4
@@ -62,6 +64,7 @@ train_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=True, downlo
 test_dataset = datasets.FashionMNIST(root='./MNIST_fashion', train=False, download=True, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
 
 
 ```
