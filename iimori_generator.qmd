@@ -20,6 +20,8 @@ jupyter: python3
 ```{python}
 
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,193 +29,397 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+import torch.nn.functional as F
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Hyperparameters
 batch_size = 128
-latent_dim = 100
+latent_dim = 5
 learning_rate = 2e-4
-num_epochs = 100
+num_epochs = 200
 
-cols = ['gender', 'age', 'BMI', 'Hb', 'Alb', 'Cr', 'UPCR', 'eGFR(0M)', 'eGFR(6M)', 'eGFR(12M)', 'eGFR(18M)', 'eGFR(24M)', 'eGFR(30M)', 'eGFR(36M)','eGFR(last visit)']
+# -----------------------------
+# Hyperparameters
+# -----------------------------
+batch_size = 128
+latent_dim = 5
+learning_rate = 2e-4
+num_epochs = 200
 
-# Load data
-df_ful = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='minimally_processed')
-# filter only keep columns: Gender, Age, BMI, Hb, Alb, Cr, uPCR, and eGFR time series
-df_ful = df_ful[cols]
-# Drop any rows that contain NaNs in these selected columns
-df_ful = df_ful.dropna()
+# -----------------------------
+# Column definitions
+# -----------------------------
+original_cols = ['gender', 'age', 'BMI', 'Hb', 'Alb', 'Cr', 'UPCR', 
+                 'eGFR(0M)', 'eGFR(6M)', 'eGFR(12M)', 'eGFR(18M)', 
+                 'eGFR(24M)', 'eGFR(30M)', 'eGFR(36M)', 'eGFR(last visit)']
 
-df_in = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='eGFR_increase')
-df_in = df_in[cols]
-df_in = df_in.dropna()
+categorical_cols = ['gender']
+continuous_cols = [col for col in original_cols if col not in categorical_cols]
 
-df_de = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='eGFR_decrease')
-df_de = df_de[cols]
-df_de = df_de.dropna()
+# -----------------------------
+# Load and preprocess data
+# -----------------------------
+df_ful = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='minimally_processed')[original_cols].dropna()
+df_in = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='eGFR_increase')[original_cols].dropna()
+df_de = pd.read_excel('iimori-ckd_processed.xlsx', sheet_name='eGFR_decrease')[original_cols].dropna()
 
+# One-hot encode categorical columns
+df_ful = pd.get_dummies(df_ful, columns=categorical_cols, drop_first=False)
+df_in = pd.get_dummies(df_in, columns=categorical_cols, drop_first=False)
+df_de = pd.get_dummies(df_de, columns=categorical_cols, drop_first=False)
 
+# Ensure all dataframes have same columns
+df_in = df_in[df_ful.columns]
+df_de = df_de[df_ful.columns]
 
-input_dim = df.shape[1]
+# Fit scaler on full dataset
+scaler = StandardScaler()
+X_ful_scaled = scaler.fit_transform(df_ful)
+X_in_scaled = scaler.transform(df_in)
+X_de_scaled = scaler.transform(df_de)
 
+# Store column names
+scaled_cols = df_ful.columns
+
+# -----------------------------
+# PyTorch Dataset
+# -----------------------------
 class CKDDataset(Dataset):
-    def __init__(self, dataframe):
-        self.X_raw = torch.tensor(dataframe.values, dtype=torch.float32)
+    def __init__(self, array):
+        self.X = torch.tensor(array, dtype=torch.float32)
 
     def __len__(self):
-        return len(self.X_raw)
+        return len(self.X)
 
     def __getitem__(self, idx):
-        x = self.X_raw[idx]
-        return x
+        return self.X[idx]
 
-dataset = CKDDataset(df)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+dataset_ful = CKDDataset(X_ful_scaled)
+dataset_in = CKDDataset(X_in_scaled)
+dataset_de = CKDDataset(X_de_scaled)
 
+dataloader_ful = DataLoader(dataset_ful, batch_size=batch_size, shuffle=True)
+dataloader_in  = DataLoader(dataset_in, batch_size=batch_size, shuffle=True)
+dataloader_de  = DataLoader(dataset_de, batch_size=batch_size, shuffle=True)
 
+input_dim_ful = X_ful_scaled.shape[1]
 
 ```
 
-# Generator
-class Generator(nn.Module):
-    def __init__(self, noise_dim, output_dim):
+
+
+
+# Define the VAE-GAN architecture
+
+```{python}
+
+# Encoder
+class Encoder(nn.Module):
+    def __init__(self, latent_dim):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(noise_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, output_dim),
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(input_dim_ful, 512),
+            nn.ReLU(inplace=False),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=False),
+        )
+        self.fc_mu = nn.Linear(256, latent_dim)
+        self.fc_logvar = nn.Linear(256, latent_dim)
+
+    def forward(self, x):
+        h = self.model(x)
+        return self.fc_mu(h), self.fc_logvar(h)
+
+# Reparameterization
+def reparameterize(mu, logvar):
+    std = torch.exp(0.5 * logvar)
+    eps = torch.randn_like(std)
+    return mu + eps * std
+
+# Decoder (Generator)
+class Decoder(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Linear(latent_dim, 256),
+            nn.ReLU(inplace=False),
+            nn.Linear(256, 512),
+            nn.ReLU(inplace=False),
+            nn.Linear(512, input_dim_ful)
         )
 
     def forward(self, z):
-        return self.net(z)
+        return self.model(z)
 
 # Discriminator
 class Discriminator(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 128),
-            nn.LeakyReLU(0.2),
-            nn.Linear(128, 1),
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(input_dim_ful, 512),
+            nn.LeakyReLU(0.2, inplace=False),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=False),
+            nn.Linear(256, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-        return self.net(x)
+        return self.model(x)
 
-G = Generator(latent_dim, input_dim).to(device)
-D = Discriminator(input_dim).to(device)
+# Instantiate models
+encoder = Encoder(latent_dim).to(device)
+decoder = Decoder(latent_dim).to(device)
+discriminator = Discriminator().to(device)
 
-opt_G = optim.Adam(G.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-opt_D = optim.Adam(D.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-
-criterion = nn.BCELoss()
-
-# Masked BCE Loss to avoid NaNs
-def masked_bce_loss(predictions, targets):
-    mask = ~torch.isnan(targets)
-    masked_preds = predictions[mask]
-    masked_targets = targets[mask]
-    if masked_targets.numel() == 0:
-        return torch.tensor(0.0, device=device, requires_grad=True)
-    return F.binary_cross_entropy(masked_preds, masked_targets)
-
-# Training Loop
-G_losses, D_losses = [], []
-
-for epoch in range(num_epochs):
-    G.train()
-    D.train()
-
-    g_loss_total = 0
-    d_loss_total = 0
-
-    for real_data in dataloader:
-        real_data = real_data.to(device)
-
-        # Create mask to ignore NaNs
-        mask = ~torch.isnan(real_data)
-        real_data = torch.nan_to_num(real_data, nan=0.0)
-
-        # === Train Discriminator ===
-        z = torch.randn(real_data.size(0), latent_dim).to(device)
-        fake_data = G(z).detach()
-
-        d_real = D(real_data)
-        d_fake = D(fake_data)
-
-        real_labels = torch.ones_like(d_real)
-        fake_labels = torch.zeros_like(d_fake)
-
-        loss_D_real = criterion(d_real, real_labels)
-        loss_D_fake = criterion(d_fake, fake_labels)
-        loss_D = (loss_D_real + loss_D_fake) / 2
-
-        opt_D.zero_grad()
-        loss_D.backward()
-        opt_D.step()
-
-        # === Train Generator ===
-        z = torch.randn(real_data.size(0), latent_dim).to(device)
-        generated_data = G(z)
-        d_generated = D(generated_data)
-
-        g_loss = criterion(d_generated, torch.ones_like(d_generated))
-
-        opt_G.zero_grad()
-        g_loss.backward()
-        opt_G.step()
-
-        g_loss_total += g_loss.item()
-        d_loss_total += loss_D.item()
-
-    G_losses.append(g_loss_total / len(dataloader))
-    D_losses.append(d_loss_total / len(dataloader))
-
-    print(f"Epoch [{epoch+1}/{num_epochs}]  D_loss: {D_losses[-1]:.4f} | G_loss: {G_losses[-1]:.4f}")
-
-# Plot training losses
-plt.plot(G_losses, label="Generator Loss")
-plt.plot(D_losses, label="Discriminator Loss")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.title("Training Losses")
-plt.legend()
-plt.grid(True)
-plt.show()
+# Optimizers
+optimizer_E = optim.Adam(encoder.parameters(), lr=learning_rate)
+optimizer_G = optim.Adam(decoder.parameters(), lr=learning_rate)
+optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
 
 
 
 ```
 
+# Training loop
 
+```{python}
+# Training loop
+def train_vae_gan(
+    encoder, decoder, discriminator,
+    train_loader,
+    optimizer_E, optimizer_G, optimizer_D,
+    device,
+    num_epochs=10,
+    verbose=True,
+    label="Full"
+):
+    vae_loss_hist = []
+    gan_loss_hist = []
+    d_loss_hist = []
+
+    mse_loss = nn.MSELoss(reduction='sum')  # Use sum reduction to match the original BCE sum
+
+    for epoch in range(num_epochs):
+        encoder.train()
+        decoder.train()
+        discriminator.train()
+
+        total_vae_loss = 0
+        total_gan_loss = 0
+        total_d_loss = 0
+
+        for x in train_loader:
+            x = x.to(device)
+
+            # VAE loss
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            x_recon = decoder(z)
+
+            recon_loss = mse_loss(x_recon, x) / x.size(0)  # average per batch
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
+            vae_l = recon_loss + kl_div
+
+            optimizer_E.zero_grad()
+            optimizer_G.zero_grad()
+            vae_l.backward(retain_graph=True)
+            optimizer_E.step()
+            optimizer_G.step()
+
+            # GAN loss
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            x_recon_gan = decoder(z)
+
+            real = torch.ones(x.size(0), 1, device=device)
+            fake = torch.zeros(x.size(0), 1, device=device)
+
+            # Discriminator step
+            D_real = discriminator(x)
+            D_fake = discriminator(x_recon_gan.detach())
+            D_loss_real = F.binary_cross_entropy(D_real, real)
+            D_loss_fake = F.binary_cross_entropy(D_fake, fake)
+            D_loss = D_loss_real + D_loss_fake
+
+            optimizer_D.zero_grad()
+            D_loss.backward()
+            optimizer_D.step()
+
+            # Generator step
+            G_fake = discriminator(x_recon_gan)
+            G_loss = F.binary_cross_entropy(G_fake, real)
+
+            optimizer_G.zero_grad()
+            G_loss.backward()
+            optimizer_G.step()
+
+            total_vae_loss += vae_l.item()
+            total_gan_loss += G_loss.item()
+            total_d_loss += D_loss.item()
+
+        avg_vae = total_vae_loss / len(train_loader)
+        avg_gan = total_gan_loss / len(train_loader)
+        avg_d = total_d_loss / len(train_loader)
+
+        vae_loss_hist.append(avg_vae)
+        gan_loss_hist.append(avg_gan)
+        d_loss_hist.append(avg_d)
+
+        if verbose:
+            print(f"[{label}] Epoch [{epoch+1}/{num_epochs}] "
+                  f"VAE Loss: {avg_vae:.4f} | GAN G Loss: {avg_gan:.4f} | D Loss: {avg_d:.4f}")
+
+    return vae_loss_hist, gan_loss_hist, d_loss_hist
+
+
+def plot_vae_gan_losses(vae_loss, gan_loss, d_loss, title="Training Loss Curves"):
+    epochs = range(1, len(vae_loss) + 1)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, vae_loss, label="VAE Loss")
+    plt.plot(epochs, gan_loss, label="Generator Loss (G)")
+    plt.plot(epochs, d_loss, label="Discriminator Loss (D)")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+```
 
 
 ```{python}
 
+vae_loss_hist, gan_loss_hist, d_loss_hist = train_vae_gan(
+    encoder=encoder,
+    decoder=decoder,
+    discriminator=discriminator,
+    train_loader=dataloader_ful,
+    optimizer_E=optimizer_E,
+    optimizer_G=optimizer_G,
+    optimizer_D=optimizer_D,
+    device=device,
+    num_epochs=num_epochs,
+    label="Full Training"
+)
 
-# Set random seed for reproducibility
-np.random.seed(42)
 
-# Parameters
-num_samples = 1000
+plot_vae_gan_losses(
+    vae_loss=vae_loss_hist,
+    gan_loss=gan_loss_hist,
+    d_loss=d_loss_hist,
+    title="VAE-GAN Training Loss Curves"
+)
 
-# Generate random normal data
-data = np.random.randn(num_samples, input_dim)
+```
 
+# Generate some example data
 
+```{python}
 
-# Create DataFrame
-df_example = pd.DataFrame(data, columns=[f'feature_{i+1}' for i in range(input_dim)])
+# Generate synthetic samples from the trained decoder
+def generate_samples_from_encoded_distribution(encoder, decoder, real_loader, num_samples=100, device='cpu'):
+    encoder.eval(); decoder.eval()
+    all_z = []
+    with torch.no_grad():
+        for x in real_loader:
+            x = x.to(device)
+            mu, logvar = encoder(x)
+            z = reparameterize(mu, logvar)
+            all_z.append(z.cpu())
+    z_all = torch.cat(all_z, dim=0)
+    indices = torch.randint(0, z_all.shape[0], (num_samples,))
+    z_sampled = z_all[indices].to(device)
+    with torch.no_grad():
+        generated = decoder(z_sampled).cpu().numpy()
+    return generated
 
-print(df_example.head())
+# Generate and inverse-transform samples
+synthetic_scaled = generate_samples_from_encoded_distribution(
+    encoder, decoder, dataloader_ful, num_samples=100, device=device
+)
 
+synthetic_original = scaler.inverse_transform(synthetic_scaled)
+df_synthetic = pd.DataFrame(synthetic_original, columns=scaled_cols)  # Use correctly defined column names
+
+print("Generated Synthetic Samples:")
+print(df_synthetic.head())
 
 
 ```
+
+
+```{python}
+
+# -----------------------------
+# Compare histograms
+# -----------------------------
+# Convert boolean columns to integers for plotting
+df_synthetic_plot = df_synthetic.copy()
+df_ful_plot = df_ful.copy()
+
+for col in scaled_cols:
+    if df_ful_plot[col].dtype == 'bool':
+        df_synthetic_plot[col] = df_synthetic_plot[col].astype(int)
+        df_ful_plot[col] = df_ful_plot[col].astype(int)
+
+plt.figure(figsize=(14, 10))
+for i, col in enumerate(scaled_cols):
+    plt.subplot(4, 4, i + 1)
+    plt.hist(df_synthetic_plot[col], bins=15, alpha=0.6, label='Synthetic', density=True, color='blue')
+    plt.hist(df_ful_plot[col], bins=15, alpha=0.4, label='Real', color='red', density=True)
+    plt.title(col)
+    plt.tight_layout()
+plt.legend()
+plt.show()
+
+
+```
+
+# Train 2 discriminators on subsets of the data
+
+
+```{python}
+
+discriminator_in = Discriminator().to(device)
+discriminator_de = Discriminator().to(device)
+
+
+
+vae_loss_hist_in, gan_loss_hist_in, d_loss_hist_in = train_vae_gan(
+    encoder=encoder,
+    decoder=decoder,
+    discriminator=discriminator_in,
+    train_loader=dataloader_in,
+    optimizer_E=optimizer_E,
+    optimizer_G=optimizer_G,
+    optimizer_D=optimizer_D,
+    device=device,
+    num_epochs=num_epochs,
+    label="Increase only"
+)
+
+vae_loss_hist_de, gan_loss_hist_de, d_loss_hist_de = train_vae_gan(
+    encoder=encoder,
+    decoder=decoder,
+    discriminator=discriminator_de,
+    train_loader=dataloader_de,
+    optimizer_E=optimizer_E,
+    optimizer_G=optimizer_G,
+    optimizer_D=optimizer_D,
+    device=device,
+    num_epochs=num_epochs,
+    label="Decrease only"
+)
+
+
+```
+
