@@ -70,11 +70,11 @@ def sim_aki_event(vec, p=0.1, multiplier=stats.uniform(0.2,0.3)):
 
 # See: https://datadryad.org/dataset/doi:10.5061/dryad.kq23s
 # associated paper: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0190493
-if os.path.exists('./iimori/ROUTE_proteinuria_dataset.pq'):
-    df_orig = pd.read_parquet('./iimori/ROUTE_proteinuria_dataset.pq')
+if os.path.exists('./ROUTE_proteinuria_dataset.pq'):
+    df_orig = pd.read_parquet('./ROUTE_proteinuria_dataset.pq')
 else:
-    df_orig = pd.read_excel('./iimori/ROUTE_proteinuria_dataset.xlsx')
-    df_orig.to_parquet('./iimori/ROUTE_proteinuria_dataset.pq')
+    df_orig = pd.read_excel('./ROUTE_proteinuria_dataset.xlsx')
+    df_orig.to_parquet('./ROUTE_proteinuria_dataset.pq')
 
 # TODO: what is ID?
 
@@ -124,7 +124,7 @@ if __name__=="__main__":
         ax[i].xaxis.set_major_locator(ticker.MultipleLocator(6))
         ax[i].set(xlabel='t (months)', ylabel='eGFR')
 
-    fig.savefig('output/simulated_aki.png', bbox_inches='tight')
-    fig.savefig('output/simulated_aki.pdf', bbox_inches='tight')
+    fig.savefig('../output/simulated_aki.png', bbox_inches='tight')
+    fig.savefig('../output/simulated_aki.pdf', bbox_inches='tight')
     fig.show()
 

@@ -18,36 +18,38 @@ df['slope'] = df['delta_eGFR']/df['observational duration'] #column with slope o
 #df_for_pca = df[['gender', 'age', 'BMI', 'etiology of CKD','Cr','eGFR','UPCR','eGFR(last visit)','delta_eGFR','observational duration']].copy()
 df_for_pca = df[['age', 'eGFR','eGFR(last visit)','delta_eGFR','observational duration']].copy()
 
-df_for_plot = PCA(n_components=3).fit_transform(df_for_pca)
+if __name__=="__main__":
 
-#plotting results of PCA
-fig = plt.figure(1, figsize=(8, 6))
-ax = fig.add_subplot(111, projection="3d", elev=0, azim=180)
+    df_for_plot = PCA(n_components=3).fit_transform(df_for_pca)
 
-scatter = ax.scatter(
-    df_for_plot[:, 0],
-    df_for_plot[:, 1],
-    df_for_plot[:,2],
-    s=40,
-    c=df['delta_eGFR']
-)
+    #plotting results of PCA
+    fig = plt.figure(1, figsize=(8, 6))
+    ax = fig.add_subplot(111, projection="3d", elev=0, azim=180)
+
+    scatter = ax.scatter(
+        df_for_plot[:, 0],
+        df_for_plot[:, 1],
+        df_for_plot[:,2],
+        s=40,
+        c=df['delta_eGFR']
+    )
 
 
-ax.set(
-    title="First three PCA dimensions",
-    xlabel="Component 1",
-    ylabel="Component 2",
-    zlabel="Component 3",
-)
+    ax.set(
+        title="First three PCA dimensions",
+        xlabel="Component 1",
+        ylabel="Component 2",
+        zlabel="Component 3",
+    )
 
-#fig.savefig()
+    #fig.savefig()
 
-'''
-plt.title("PCA of Iimori CKD Data")
-plt.xlabel("Component 1")
-plt.ylabel("Component 2")
-plt.show()
-'''    
+    '''
+    plt.title("PCA of Iimori CKD Data")
+    plt.xlabel("Component 1")
+    plt.ylabel("Component 2")
+    plt.show()
+    '''    
 
 
 
