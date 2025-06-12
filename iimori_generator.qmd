@@ -36,17 +36,11 @@ import torch.nn.functional as F
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Hyperparameters
-batch_size = 128
-latent_dim = 5
-learning_rate = 2e-4
-num_epochs = 200
-
 # -----------------------------
 # Hyperparameters
 # -----------------------------
 batch_size = 128
-latent_dim = 5
+latent_dim = 10
 learning_rate = 2e-4
 num_epochs = 200
 
@@ -598,7 +592,7 @@ plt.figure(figsize=(8, 6))
 bars = plt.bar(categories, values1, color=['green', 'blue', 'green', 'blue'])
 plt.ylim(0, 1)
 plt.ylabel('Proportion of Correct Discriminations')
-plt.title('Increasing Discriminator Accuracy on Both Datasets')
+plt.title('Decreasinf Discriminator Accuracy on Both Datasets')
 
 # Annotate bars with proportions as percentages
 for bar in bars:
@@ -636,4 +630,24 @@ plt.show()
 
 
 ```
+
+
+
+# Combinig the individual discriminators
+
+
+```{python}
+
+def get_latent_embeddings(x, encoder, device):
+    encoder.eval()
+    with torch.no_grad():
+        x = x.to(device)
+        mu, logvar = encoder(x)
+        z = reparameterize(mu, logvar)  # shape [batch, latent_dim]
+    return z.cpu()
+
+
+
+```
+
 
