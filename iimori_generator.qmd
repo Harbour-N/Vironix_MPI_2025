@@ -344,7 +344,7 @@ def generate_samples_from_encoded_distribution(encoder, decoder, real_loader, nu
 
 # Generate and inverse-transform samples
 synthetic_scaled = generate_samples_from_encoded_distribution(
-    encoder, decoder, dataloader_ful, num_samples=100, device=device
+    encoder, decoder, dataloader_ful, num_samples=len(df_ful), device=device
 )
 
 synthetic_original = scaler.inverse_transform(synthetic_scaled)
@@ -389,37 +389,225 @@ plt.show()
 
 ```{python}
 
+# VAE-GAN for eGFR Increasing Subset
+encoder_in = Encoder(latent_dim).to(device)
+decoder_in = Decoder(latent_dim).to(device)
 discriminator_in = Discriminator().to(device)
-discriminator_de = Discriminator().to(device)
 
+optimizer_E_in = optim.Adam(encoder_in.parameters(), lr=learning_rate)
+optimizer_G_in = optim.Adam(decoder_in.parameters(), lr=learning_rate)
+optimizer_D_in = optim.Adam(discriminator_in.parameters(), lr=learning_rate)
 
-
-vae_loss_hist_in, gan_loss_hist_in, d_loss_hist_in = train_vae_gan(
-    encoder=encoder,
-    decoder=decoder,
+vae_loss_in, gan_loss_in, d_loss_in = train_vae_gan(
+    encoder=encoder_in,
+    decoder=decoder_in,
     discriminator=discriminator_in,
     train_loader=dataloader_in,
-    optimizer_E=optimizer_E,
-    optimizer_G=optimizer_G,
-    optimizer_D=optimizer_D,
+    optimizer_E=optimizer_E_in,
+    optimizer_G=optimizer_G_in,
+    optimizer_D=optimizer_D_in,
     device=device,
     num_epochs=num_epochs,
-    label="Increase only"
+    label="eGFR Increase"
 )
 
-vae_loss_hist_de, gan_loss_hist_de, d_loss_hist_de = train_vae_gan(
-    encoder=encoder,
-    decoder=decoder,
+plot_vae_gan_losses(
+    vae_loss=vae_loss_in,
+    gan_loss=gan_loss_in,
+    d_loss=d_loss_in,
+    title="VAE-GAN Loss (eGFR Increase)"
+)
+
+
+
+```
+
+
+```{python}
+
+
+# VAE-GAN for eGFR Decreasing Subset
+encoder_de = Encoder(latent_dim).to(device)
+decoder_de = Decoder(latent_dim).to(device)
+discriminator_de = Discriminator().to(device)
+
+optimizer_E_de = optim.Adam(encoder_de.parameters(), lr=learning_rate)
+optimizer_G_de = optim.Adam(decoder_de.parameters(), lr=learning_rate)
+optimizer_D_de = optim.Adam(discriminator_de.parameters(), lr=learning_rate)
+
+vae_loss_de, gan_loss_de, d_loss_de = train_vae_gan(
+    encoder=encoder_de,
+    decoder=decoder_de,
     discriminator=discriminator_de,
     train_loader=dataloader_de,
-    optimizer_E=optimizer_E,
-    optimizer_G=optimizer_G,
-    optimizer_D=optimizer_D,
+    optimizer_E=optimizer_E_de,
+    optimizer_G=optimizer_G_de,
+    optimizer_D=optimizer_D_de,
     device=device,
     num_epochs=num_epochs,
-    label="Decrease only"
+    label="eGFR Decrease"
 )
 
+plot_vae_gan_losses(
+    vae_loss=vae_loss_de,
+    gan_loss=gan_loss_de,
+    d_loss=d_loss_de,
+    title="VAE-GAN Loss (eGFR Decrease)"
+)
+
+
+```
+
+
+```{python}
+
+
+# Generate samples from trained models
+samples_in = generate_samples_from_encoded_distribution(
+    encoder_in, decoder_in, dataloader_in, num_samples=len(df_in), device=device
+)
+samples_de = generate_samples_from_encoded_distribution(
+    encoder_de, decoder_de, dataloader_de, num_samples=len(df_de), device=device
+)
+
+# Inverse transform
+df_in_syn = pd.DataFrame(scaler.inverse_transform(samples_in), columns=scaled_cols)
+df_de_syn = pd.DataFrame(scaler.inverse_transform(samples_de), columns=scaled_cols)
+
+# Histogram comparison code can be reused here too...
+
+
+# Convert boolean columns to integers for plotting
+df_in_plot = df_in.copy()
+df_in_syn_plot = df_in_syn.copy()
+
+for col in scaled_cols:
+    if df_in_plot[col].dtype == 'bool':
+        df_in_plot[col] = df_in_plot[col].astype(int)
+        df_in_syn_plot[col] = df_in_syn_plot[col].astype(int)
+
+plt.figure(figsize=(14, 10))
+for i, col in enumerate(scaled_cols):
+    plt.subplot(4, 4, i + 1)
+    plt.hist(df_in_syn_plot[col], bins=15, alpha=0.6, label='Synthetic (↑ eGFR)', density=True, color='blue')
+    plt.hist(df_in_plot[col], bins=15, alpha=0.4, label='Real (↑ eGFR)', color='red', density=True)
+    plt.title(col)
+    plt.tight_layout()
+plt.legend()
+plt.suptitle("Histogram Comparison - eGFR Increasing", fontsize=16)
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.show()
+
+
+# Convert boolean columns to integers for plotting
+df_de_plot = df_de.copy()
+df_de_syn_plot = df_de_syn.copy()
+
+for col in scaled_cols:
+    if df_de_plot[col].dtype == 'bool':
+        df_de_plot[col] = df_de_plot[col].astype(int)
+        df_de_syn_plot[col] = df_de_syn_plot[col].astype(int)
+
+plt.figure(figsize=(14, 10))
+for i, col in enumerate(scaled_cols):
+    plt.subplot(4, 4, i + 1)
+    plt.hist(df_de_syn_plot[col], bins=15, alpha=0.6, label='Synthetic (↓ eGFR)', density=True, color='blue')
+    plt.hist(df_de_plot[col], bins=15, alpha=0.4, label='Real (↓ eGFR)', color='red', density=True)
+    plt.title(col)
+    plt.tight_layout()
+plt.legend()
+plt.suptitle("Histogram Comparison - eGFR Decreasing", fontsize=16)
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.show()
+
+
+```
+
+# Evaluate the models
+
+```{python}
+
+def evaluate_discriminator_proportion(discriminator, real_loader, synthetic_data, label, threshold=0.5, n_samples=100):
+    discriminator.eval()
+
+    # Real samples
+    real_samples = next(iter(real_loader))[:n_samples].to(device)
+    with torch.no_grad():
+        real_preds = discriminator(real_samples)
+    real_preds_binary = (real_preds > threshold).int()
+    correct_real = real_preds_binary.sum().item()
+
+    # Fake samples
+    synthetic_tensor = torch.tensor(synthetic_data[:n_samples], dtype=torch.float32).to(device)
+    with torch.no_grad():
+        fake_preds = discriminator(synthetic_tensor)
+    fake_preds_binary = (fake_preds <= threshold).int()  # classify fake as 0
+    correct_fake = fake_preds_binary.sum().item()
+
+    prop_real = correct_real / n_samples
+    prop_fake = correct_fake / n_samples
+
+    print(f"{label} - Proportion Correct Real: {prop_real:.2f} | Proportion Correct Fake: {prop_fake:.2f}")
+    return prop_real, prop_fake
+
+
+```
+
+Increasing discriminator on both datasets
+
+```{python}
+# Evaluate only the increasing discriminator on both datasets
+inc_real_prop, inc_fake_prop = evaluate_discriminator_proportion(discriminator_in, dataloader_in, samples_in, "Inc Disc on Increasing Data")
+dec_real_prop, dec_fake_prop = evaluate_discriminator_proportion(discriminator_in, dataloader_de, samples_de, "Inc Disc on Decreasing Data")
+
+# Plotting proportions
+categories = ['Inc-Real', 'Inc-Synth', 'Dec-Real', 'Dec-Synth']
+values = [inc_real_prop, inc_fake_prop, dec_real_prop, dec_fake_prop]
+
+plt.figure(figsize=(8, 6))
+bars = plt.bar(categories, values, color=['green', 'blue', 'green', 'blue'])
+plt.ylim(0, 1)
+plt.ylabel('Proportion of Correct Discriminations')
+plt.title('Increasing Discriminator Accuracy on Both Datasets')
+
+# Annotate bars with proportions as percentages
+for bar in bars:
+    yval = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2, yval + 0.03, f'{yval*100:.1f}%', ha='center', va='bottom')
+
+plt.grid(axis='y', linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+```
+
+decreasing discriminator on both datasets
+
+```{python}
+
+
+# Evaluate only the increasing discriminator on both datasets
+inc_real_prop1, inc_fake_prop1 = evaluate_discriminator_proportion(discriminator_de, dataloader_de, samples_de, "De Disc on Increasing Data")
+dec_real_prop1, dec_fake_prop1 = evaluate_discriminator_proportion(discriminator_de, dataloader_de, samples_de, "De Disc on Decreasing Data")
+
+# Plotting proportions
+categories = ['Inc-Real', 'Inc-Synth', 'Dec-Real', 'Dec-Synth']
+values1 = [inc_real_prop1, inc_fake_prop1, dec_real_prop1, dec_fake_prop1]
+
+plt.figure(figsize=(8, 6))
+bars = plt.bar(categories, values1, color=['green', 'blue', 'green', 'blue'])
+plt.ylim(0, 1)
+plt.ylabel('Proportion of Correct Discriminations')
+plt.title('Increasing Discriminator Accuracy on Both Datasets')
+
+# Annotate bars with proportions as percentages
+for bar in bars:
+    yval = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2, yval + 0.03, f'{yval*100:.1f}%', ha='center', va='bottom')
+
+plt.grid(axis='y', linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
 
 ```
 
