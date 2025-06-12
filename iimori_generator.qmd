@@ -611,3 +611,29 @@ plt.show()
 
 ```
 
+Full discriminator on both datasets
+
+```{python}
+
+# Evaluate only the full discriminator on both datasets
+full_real_prop1, full_fake_prop1 = evaluate_discriminator_proportion(discriminator, dataloader_in, samples_in, "Full Disc on Increasing Data")
+full_real_prop2, full_fake_prop2 = evaluate_discriminator_proportion(discriminator, dataloader_de, samples_de, "Full Disc on Decreasing Data")
+# Plotting proportions
+categories = ['Inc-Real', 'Inc-Synth', 'Dec-Real', 'Dec-Synth']
+values2 = [full_real_prop1, full_fake_prop1, full_real_prop2, full_fake_prop2]
+plt.figure(figsize=(10, 6))
+bars = plt.bar(categories, values2, color=['green', 'blue', 'green', 'blue', 'green', 'blue'])
+plt.ylim(0, 1)
+plt.ylabel('Proportion of Correct Discriminations')
+plt.title('Full Discriminator Accuracy on All Datasets')
+# Annotate bars with proportions as percentages
+for bar in bars:
+    yval = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2, yval + 0.03, f'{yval*100:.1f}%', ha='center', va='bottom')
+plt.grid(axis='y', linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+
+```
+
