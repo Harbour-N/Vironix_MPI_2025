@@ -1,0 +1,76 @@
+Code in this folder was collected from work done in the 2025 MPI
+workshop 6/9-6/13.
+
+build_intersections(birders)
+Purpose: Given a collectoin of binary matrices, construct a binary matrix
+representing intersections by a_ij = 1 iff matrices i and j have nontrivial
+intersection.
+Inputs:
+    birders - collection of binary matrices to intersect
+Outputs:
+    intersections   - single binary matrix representing intersections
+
+collect_birders(num_watchers,radius,birds)
+Purpose: Place birdwatchers within (or technically near) the US, under the
+stipulation that they must be on land, and all pixels within a specified
+radius are contained with the borders of the map.
+Implementation: Available bird maps encode ocean tiles with NaN and empty
+land tiles with 0. The first condition may therefore be enforced by
+ensuring no birders are placed on a NaN tile. The second condition is
+enforced by precising birder positions to be beyond a fixed distance from
+the border of the map. Since outstanding birders are removed, the initial
+number of positions is artificially raised by 30, allowing for that many
+removals.
+Inputs:
+    num_watchers    - desired number of birdwatchers
+    radius          - radius defining birder neighborhood
+    birds           - map of bird distribution
+Output:
+    birders     - matrix of (x,y) coordinates for birders
+
+collect_neighborhoods(radius,height,width,positions)
+Purpose: Given a collection of birders, collect the regions (neighborhoods)
+which they observe.
+Inputs:
+    radius      - radius of birder neighborhood
+    height      - one dimension of map
+    width       - other dimension of map
+    positions   - positions of birders
+Outputs:
+    neighborhoods   - collection of birder neighborhoods, stored (x,y,z)
+    (birder number, x coordinate, y coordinate)
+
+collect_covers(covers_file)
+Purpose: From a collection of sets, prune the redundant entries.
+Inputs:
+    covers_file - file containing collection of sets
+Outputs:
+    covers  - file containing collection of sets with duplicates removed
+
+find_covers(matrix,removed,row,f)
+Purpose: Given a collection of sets, find disjoint subsets.
+Implementation: Encode a matrix as follows:
+    a_ij = 1    if sets i and j intersect
+    a_ij = 0    if sets i and j do not intersect
+Now determine which rows (and corresponding columns because the matrix
+will be symmetric) to remove such that what remains is an identity
+matrix. Example: from [1 1 0; 0 1 1; 0 0 1] removing either the first or
+second index yields [1 0; 0 1].
+Inputs:
+    matrix  - the matrix begin pruned
+    removed - the indices removed thus far
+    row     - the next row which may need to be removed
+    f       - file to write to
+Outputs: (This does not play a role in the code, it's just for MatLab. The
+        actual data is written to an external file.)
+    kept    - vector of retained indices in last recursive step
+
+plot_birders(fig_num,bottom,covers,radius,birders)
+Purpose: This is a helpful graphing method. It plots birder neighborhoods
+over some background image.
+Inputs:
+    fig_num - which figure to plot in
+    bottom  - the background image
+    covers  - which birders to plot AS CELL ARRAY
+    radius  - the radius of birder neighborhoods
+    birders - positions of birders

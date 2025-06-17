@@ -1,0 +1,30 @@
+Metadata for Compiled Matrix
+
+big_matrix(1)=Northern Cardinal year-round
+
+big_matrix(2)=American tree sparrow breeding season
+big_matrix(3)=American tree sparrow nonbreeding season
+big_matrix(4)=American tree sparrow post season
+big_matrix(5)=American tree sparrow pre season
+
+big_matrix(6)=Western tanager breeding season
+big_matrix(7)=Western tanager nonbreeding season
+big_matrix(8)=Western tanager post season
+big_matrix(9)=Western tanager pre season
+
+big_matrix(10)=Mountain bluebird breeding season
+big_matrix(11)=Mountain bluebird nonbreeding season
+big_matrix(12)=Mountain bluebird post season
+big_matrix(13)=Mountain bluebird pre season
+
+big_matrix(14)=Western bluebird breeding season (again?)
+big_matrix(15)=Western bluebird nonbreeding season
+big_matrix(16)=Western bluebird post season
+big_matrix(17)=Western bluebird pre season
+
+big_matrix(18)=Eastern bluebird breeding season
+big_matrix(19)=Eastern bluebird nonbreeding season
+big_matrix(20)=Eastern bluebird post season
+big_matrix(21)=Eastern bluebird pre season
+
+
