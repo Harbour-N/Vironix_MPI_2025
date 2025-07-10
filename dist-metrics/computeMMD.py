@@ -1,3 +1,7 @@
+# === Acknowledgements ===
+# This code was created with the help of Chatgpt
+
+# === imports ===
 import torch
 
 # === MMD with the Gaussian Kernel ===
